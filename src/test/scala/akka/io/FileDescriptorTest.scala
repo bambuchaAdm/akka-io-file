@@ -1,16 +1,13 @@
 package akka.io
 
-import java.io.File
-import java.nio.file.{Files, Path}
-import java.nio.file.StandardOpenOption._
+import java.nio.file.{FileSystems, Path}
 
-import akka.actor.ActorRef
 import akka.io.File._
+import akka.util.ByteString
 
-/**
-  * Created by bambucha on 05.11.15.
-  */
-class FileDescriptorTest extends BaseTest with FileActorFixtures {
+import scala.concurrent.duration._
+
+class FileDescriptorTest extends BaseTest with FileActorFixtures with DefaultSender {
 
   behavior of classOf[FileDescriptor].getSimpleName
 
@@ -23,14 +20,55 @@ class FileDescriptorTest extends BaseTest with FileActorFixtures {
     }
   }
 
-  it should "send information about read out of file boundary" in {
-    withDescriptorAndContent { (handler, content) =>
-      handler ! Read(defaultFileLength + 16, 16)
-      expectMsg(OutOfFileBoundaryRead(defaultFileLength + 16, 16))
+  it should "read content file larger then buffer" in {
+    withExampleFileContent(2048){ (path: Path, content: ByteString) =>
+      withDescriptor(path){ handler =>
+        handler ! Read(0, 2048)
+        val result = expectMsgType[ReadResult]
+        result.data shouldEqual content
+      }
     }
   }
 
-  it should "send information about fail on trying read non existing file" in {
-
+  it should "send information about read out of file boundary" in {
+    withDescriptorAndContent { (handler, content) =>
+      val read: Read = Read(defaultFileLength + 16, 16)
+      handler ! read
+      expectMsg(OutOfFileBoundaryRead(read))
+    }
   }
+
+  it should "write to file" in {
+    val position = 16
+    val buffer = ByteString("AAAAAAAA", "utf8")
+    withExampleFileContent() { (path, originalContent) =>
+      withDescriptorAndContent(path){ descriptor =>
+        descriptor.tell(Write(position, buffer), testActor)
+        expectMsg(10.seconds, Wrote(position, buffer))
+      } { content =>
+        content shouldEqual (originalContent.take(position) ++ buffer ++ originalContent.slice(position + buffer.size, originalContent.size))
+      }
+    }
+  }
+
+  it should "write to file byte string larger then default-buffer" in {
+    val strings = (1 to 8).map( _ => ByteString(randomString(2048)))
+    val exampleContent: ByteString = strings.fold(ByteString.empty){ _ ++ _}
+    withExampleFile{ path =>
+      withDescriptorAndContent(path){ handler =>
+        handler ! Write(0, exampleContent)
+        expectMsgType[Wrote]
+      }{ content =>
+        content shouldEqual exampleContent
+      }
+    }
+  }
+
+  it should "report error on full device" in {
+    withDescriptor(FileSystems.getDefault.getPath("/", "dev", "full")){ handler =>
+      handler ! Write(0, ByteString(randomString(16)))
+      expectMsgType[CommandFailed]
+    }
+  }
+
 }

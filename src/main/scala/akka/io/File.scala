@@ -1,6 +1,7 @@
 package akka.io
 
 import java.nio.file.{OpenOption, Path}
+import javax.swing.text.Position
 
 import akka.actor._
 import akka.util.ByteString
@@ -13,17 +14,25 @@ object File extends ExtensionId[FileExt] with ExtensionIdProvider {
 
   override def lookup(): ExtensionId[_ <: Extension] = File
 
-  class CommandFailed(val exception: Throwable)
+  trait Event
 
-  case class Open(path: Path, openOption: OpenOption*)
+  final case class CommandFailed(command: Command, reason: Throwable) extends Event
 
-  case class FileNotFound(override val exception: Throwable) extends CommandFailed(exception)
+  trait Command {
+    def failureMessage(reason: Throwable) = CommandFailed(this, reason)
+  }
 
-  case class Read(position: Long, length: Int)
+  case class Open(path: Path, openOption: OpenOption*) extends Command
 
-  case class ReadResult(result: ByteString, position: Long, length: Int)
+  case class Read(position: Long, length: Int) extends Command
 
-  case class OutOfFileBoundaryRead(position: Long, length: Int)
+  case class ReadResult(data: ByteString, position: Long, length: Int) extends Event
+
+  case class OutOfFileBoundaryRead(read: Read) extends Event
+
+  case class Write(position: Long, data: ByteString) extends Command
+
+  case class Wrote(position: Long, data: ByteString) extends Event
 
 }
 

@@ -1,29 +1,40 @@
 package akka.io
 
-import java.nio.file.{StandardOpenOption, Files, OpenOption}
+import java.io.IOException
+import java.nio.file.{NoSuchFileException, OpenOption}
 import java.util.Collections
 import java.util.concurrent.{AbstractExecutorService, TimeUnit}
 
-import akka.actor.{OneForOneStrategy, SupervisorStrategy, Actor, Props}
+import akka.actor.SupervisorStrategy._
+import akka.actor._
 import akka.io.File._
 
 import scala.concurrent.{ExecutionContext, ExecutionContextExecutorService}
 
-/**
-  * Created by bambucha on 05.11.15.
-  */
 class FileManager(extension: FileExt) extends Actor  {
 
   val executorService = ExecutionContextExecutorServiceBridge(extension.fileExecutionContext)
 
   override def receive: Receive = {
     case command: Open =>
-      if(Files.exists(command.path) || command.openOption.contains(StandardOpenOption.CREATE)) {
-        val openOptions: Set[_ <: OpenOption] = command.openOption.toSet
-        sender() ! context.actorOf(Props(classOf[FileDescriptor], command.path, openOptions, executorService, extension.bufferPool))
-      } else {
-        sender() ! FileNotFound
-      }
+      val openOptions: Set[_ <: OpenOption] = command.openOption.toSet
+      val actor = context.actorOf(descriptorProps(command, openOptions))
+      actor.forward(command)
+  }
+
+  def descriptorProps(command: Open, openOptions: Set[_ <: OpenOption]): Props = {
+    Props(classOf[FileDescriptor], command.path, openOptions, executorService, extension.bufferPool)
+  }
+
+  val decider: Decider = {
+    case ex: IOException          => Resume
+  }
+
+  override def supervisorStrategy: SupervisorStrategy = new OneForOneStrategy()(decider){
+    override def processFailure(context: ActorContext, restart: Boolean, child: ActorRef, cause: Throwable, stats: ChildRestartStats, children: Iterable[ChildRestartStats]): Unit = {
+      super.processFailure(context, restart, child, cause, stats, children)
+      println(cause)
+    }
   }
 }
 

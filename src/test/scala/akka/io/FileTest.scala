@@ -1,13 +1,11 @@
 package akka.io
 
-import java.io.File
-import java.nio.file.Path
+import java.io.{File => JFile}
+import java.nio.file.{NoSuchFileException, Path}
 import java.nio.file.StandardOpenOption._
 
-import akka.actor.{ActorRef, ActorSystem}
-import akka.io.File.{FileNotFound, Open}
-import akka.testkit.TestKitBase
-import org.scalatest.{Matchers, FlatSpec}
+import akka.actor.ActorRef
+import akka.io.File.{CommandFailed, Open}
 
 /**
   * Created by bambucha on 05.11.15.
@@ -29,8 +27,9 @@ class FileTest extends BaseTest with FileFixtures {
 
   it should "send back error about file not found" in {
     val nonExistingFileName = "non-existing-file"
-    val path: Path = new File(nonExistingFileName).toPath
+    val path: Path = new JFile(nonExistingFileName).toPath
     IO(File) ! Open(path, READ)
-    expectMsgClass(classOf[FileNotFound])
+    val fail = expectMsgType[CommandFailed]
+    fail.reason shouldBe a[NoSuchFileException]
   }
 }
